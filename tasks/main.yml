@@ -1,0 +1,88 @@
+---
+- name: Ensure CA certificate exists on foreman_ca_host
+  stat:
+    path: "{{ foreman_ca_cert }}"
+  register: g_ca_cert_stat_result
+  delegate_to: "{{ foreman_ca_host }}"
+
+- fail:
+    msg: >
+      CA certificate {{ foreman_ca_cert }} doesn't exist on CA host
+      {{ foreman_ca_host }}.
+  when: not g_ca_cert_stat_result.stat.exists | bool
+
+- name: Check status of proxy certificates on ca server
+  stat:
+    path: "/etc/puppetlabs/puppet/ssl/{{ item }}"
+  with_items:
+  - "certs/{{ ansible_fqdn }}.pem"
+  - "private_keys/{{ ansible_fqdn }}.pem"
+  register: g_proxy_cert_stat_result
+  delegate_to: "{{ foreman_ca_host }}"
+
+- set_fact:
+    proxy_certs_missing: "{{ False in (g_proxy_cert_stat_result.results
+                                            | default({})
+                                            | map(attribute='stat.exists')
+                                            | list) }}"
+
+- name: Create local temp directory for syncing certs
+  local_action: command mktemp -d /tmp/foreman-ansible-XXXXXXX
+  register: proxy_cert_mktemp
+  changed_when: False
+  become: no
+
+- name: Generate the proxy server certificate
+  command: >
+     /opt/puppetlabs/puppet/bin/puppet cert generate "{{ ansible_fqdn }}"
+  when: proxy_certs_missing
+  delegate_to: "{{ foreman_ca_host }}"
+
+- name: Retrieve the proxy certificates (ca, crl and public cert) from the master
+  fetch:
+    src: "/etc/puppetlabs/puppet/ssl/{{ item }}"
+    dest: "{{ proxy_cert_mktemp.stdout }}/"
+    flat: yes
+    fail_on_missing: yes
+    validate_checksum: yes
+  with_items:
+    - "certs/ca.pem"
+    - "certs/{{ ansible_fqdn }}.pem"
+    - "crl.pem"
+  delegate_to: "{{ foreman_ca_host }}"
+
+- name: Retrieve the proxy certificates (private key) from the master
+  fetch:
+    src: "/etc/puppetlabs/puppet/ssl/private_keys/{{ ansible_fqdn }}.pem"
+    dest: "{{ proxy_cert_mktemp.stdout }}/{{ ansible_fqdn }}.pem.private"
+    flat: yes
+    fail_on_missing: yes
+    validate_checksum: yes
+  delegate_to: "{{ foreman_ca_host }}"
+
+- name: Ensure certificate directory exists
+  file:
+    path: "{{ item }}"
+    state: directory
+  with_items:
+    - /etc/puppetlabs/puppet/ssl/certs
+    - /etc/puppetlabs/puppet/ssl/private_keys
+
+- name: copy the ca and public cert to proxy
+  copy:
+    src: "{{ proxy_cert_mktemp.stdout }}/"
+    dest: "/etc/puppetlabs/puppet/ssl/"
+  with_items:
+    - "certs/ca.pem"
+    - "certs/{{ ansible_fqdn }}.pem"
+    - "crl.pem"
+
+- name: copy the ca and private key to proxy
+  copy:
+    src: "{{ proxy_cert_mktemp.stdout }}/{{ ansible_fqdn }}.pem.private"
+    dest: "/etc/puppetlabs/puppet/ssl/private_keys/{{ ansible_fqdn }}.pem"
+
+- name: Delete local temp directory
+  local_action: file path="{{ proxy_cert_mktemp.stdout }}" state=absent
+  changed_when: False
+  become: no

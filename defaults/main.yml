@@ -1,0 +1,2 @@
+---
+foreman_ca_cert: /etc/puppetlabs/puppet/ssl/certs/ca.pem
