@@ -1,6 +1,6 @@
 galaxy_info:
   author: Genadi Postrilko
-  description: Ansible role to install and configure hammer-cli
+  description: The role creates and deploys certificates to proxy hosts which this role is being applied to
   issue_tracker_url: https://github.com/genadipost/foreman_proxy_certificates/issues
   license: BSD
   min_ansible_version: 2.3
