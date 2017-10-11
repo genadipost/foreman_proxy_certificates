@@ -32,6 +32,12 @@
   changed_when: False
   become: no
 
+- name: Create create puppet ssl path in tmp directory
+  local_action: file path="{{ proxy_cert_mktemp.stdout }}/{{ item }}" state=directory
+  with_items:
+    - /certs
+    - /private_keys
+
 - name: Generate the proxy server certificate
   command: >
      /opt/puppetlabs/puppet/bin/puppet cert generate "{{ ansible_fqdn }}"
@@ -41,7 +47,7 @@
 - name: Retrieve the proxy certificates (ca, crl and public cert) from the master
   fetch:
     src: "/etc/puppetlabs/puppet/ssl/{{ item }}"
-    dest: "{{ proxy_cert_mktemp.stdout }}/"
+    dest: "{{ proxy_cert_mktemp.stdout }}/{{ item }}"
     flat: yes
     fail_on_missing: yes
     validate_checksum: yes
@@ -54,7 +60,7 @@
 - name: Retrieve the proxy certificates (private key) from the master
   fetch:
     src: "/etc/puppetlabs/puppet/ssl/private_keys/{{ ansible_fqdn }}.pem"
-    dest: "{{ proxy_cert_mktemp.stdout }}/{{ ansible_fqdn }}.pem.private"
+    dest: "{{ proxy_cert_mktemp.stdout }}/private_keys/{{ ansible_fqdn }}.pem"
     flat: yes
     fail_on_missing: yes
     validate_checksum: yes
@@ -70,17 +76,13 @@
 
 - name: copy the ca and public cert to proxy
   copy:
-    src: "{{ proxy_cert_mktemp.stdout }}/"
-    dest: "/etc/puppetlabs/puppet/ssl/"
+    src: "{{ proxy_cert_mktemp.stdout }}/{{ item }}"
+    dest: "/etc/puppetlabs/puppet/ssl/{{ item }}"
   with_items:
     - "certs/ca.pem"
     - "certs/{{ ansible_fqdn }}.pem"
+    - "private_keys/{{ ansible_fqdn }}.pem"
     - "crl.pem"
-
-- name: copy the ca and private key to proxy
-  copy:
-    src: "{{ proxy_cert_mktemp.stdout }}/{{ ansible_fqdn }}.pem.private"
-    dest: "/etc/puppetlabs/puppet/ssl/private_keys/{{ ansible_fqdn }}.pem"
 
 - name: Delete local temp directory
   local_action: file path="{{ proxy_cert_mktemp.stdout }}" state=absent
